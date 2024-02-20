@@ -8,6 +8,7 @@ mod settings;
 mod spotify;
 mod tag;
 
+use aspotify::Market;
 use async_std::task;
 use colored::Colorize;
 use downloader::{DownloadState, Downloader};
@@ -84,6 +85,11 @@ async fn start() {
 		&settings.password,
 		&settings.client_id,
 		&settings.client_secret,
+		if let Some(countrycode) = settings.market {
+			Some(Market::Country(countrycode))
+		} else {
+			None
+		},
 	)
 	.await
 	{
