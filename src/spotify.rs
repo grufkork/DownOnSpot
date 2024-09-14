@@ -48,6 +48,7 @@ impl Spotify {
 			secret: Some(client_secret.to_string()),
 		};
 		let spotify = ClientCredsSpotify::new(credentials);
+		spotify.request_token().await?;
 
 		Ok(Spotify {
 			session,
@@ -91,32 +92,25 @@ impl Spotify {
 				let track = self
 					.spotify
 					.track(TrackId::from_id(id).unwrap(), self.market)
-					.await
-					.unwrap();
+					.await?;
 				Ok(SpotifyItem::Track(track))
 			}
 			"playlist" => {
 				let playlist = self
 					.spotify
 					.playlist(PlaylistId::from_id(id).unwrap(), None, self.market)
-					.await
-					.unwrap();
+					.await?;
 				Ok(SpotifyItem::Playlist(playlist))
 			}
 			"album" => {
 				let album = self
 					.spotify
 					.album(AlbumId::from_id(id).unwrap(), self.market)
-					.await
-					.unwrap();
+					.await?;
 				Ok(SpotifyItem::Album(album))
 			}
 			"artist" => {
-				let artist = self
-					.spotify
-					.artist(ArtistId::from_id(id).unwrap())
-					.await
-					.unwrap();
+				let artist = self.spotify.artist(ArtistId::from_id(id).unwrap()).await?;
 				Ok(SpotifyItem::Artist(artist))
 			}
 			// Unsupported / Unimplemented
@@ -165,6 +159,7 @@ impl Spotify {
 	/// Get all tracks from album
 	pub async fn full_album(&self, id: &str) -> Result<Vec<SimplifiedTrack>, SpotifyError> {
 		let mut tracks: Vec<SimplifiedTrack> = Vec::new();
+		println!("{}", id);
 		let stream = self
 			.spotify
 			.album_track(AlbumId::from_id(id).unwrap(), self.market);
