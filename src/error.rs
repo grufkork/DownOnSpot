@@ -12,15 +12,15 @@ pub enum SpotifyError {
 	AudioKeyError,
 	LameConverterError(String),
 	JoinError,
-	ASpotify(String),
+	RSpotify(String),
 	Serde(String, usize, usize),
 	InvalidUri,
 	ParseError(url::ParseError),
 	ID3Error(String, String),
 	Reqwest(String),
 	InvalidFormat,
-    NotConnected,
-    UnknownPacket(u8),
+	NotConnected,
+	UnknownPacket(u8),
 	AlreadyDownloaded,
 }
 
@@ -38,15 +38,15 @@ impl fmt::Display for SpotifyError {
 			SpotifyError::AudioKeyError => write!(f, "Audio Key Error"),
 			SpotifyError::LameConverterError(e) => write!(f, "Lame error: {}", e),
 			SpotifyError::JoinError => write!(f, "Tokio Join Error"),
-			SpotifyError::ASpotify(e) => write!(f, "Spotify Error: {}", e),
+			SpotifyError::RSpotify(e) => write!(f, "Spotify Error: {}", e),
 			SpotifyError::Serde(e, l, c) => write!(f, "Serde Error @{}:{} {}", l, c, e),
 			SpotifyError::InvalidUri => write!(f, "Invalid URI"),
 			SpotifyError::ParseError(e) => write!(f, "Parse Error: {}", e),
 			SpotifyError::ID3Error(k, e) => write!(f, "ID3 Error: {} {}", k, e),
 			SpotifyError::Reqwest(e) => write!(f, "Reqwest Error: {}", e),
 			SpotifyError::InvalidFormat => write!(f, "Invalid Format!"),
-            SpotifyError::NotConnected => write!(f, "Not Connected"),
-            SpotifyError::UnknownPacket(e) => write!(f, "Unknown Packet: {}", e),
+			SpotifyError::NotConnected => write!(f, "Not Connected"),
+			SpotifyError::UnknownPacket(e) => write!(f, "Unknown Packet: {}", e),
 			SpotifyError::AlreadyDownloaded => write!(f, "Already Downloaded"),
 		}
 	}
@@ -69,9 +69,9 @@ impl From<librespot::core::mercury::MercuryError> for SpotifyError {
 }
 
 impl From<librespot::core::error::Error> for SpotifyError {
-    fn from(e: librespot::core::error::Error) -> Self {
-        SpotifyError::Error(e.to_string())
-    }
+	fn from(e: librespot::core::error::Error) -> Self {
+		SpotifyError::Error(e.to_string())
+	}
 }
 
 impl From<librespot::core::session::SessionError> for SpotifyError {
@@ -80,9 +80,9 @@ impl From<librespot::core::session::SessionError> for SpotifyError {
 			librespot::core::session::SessionError::IoError(e) => e.into(),
 			librespot::core::session::SessionError::AuthenticationError(_) => {
 				SpotifyError::AuthenticationError
-			},
-            librespot::core::session::SessionError::NotConnected => SpotifyError::NotConnected,
-            librespot::core::session::SessionError::Packet(e) => SpotifyError::UnknownPacket(e)
+			}
+			librespot::core::session::SessionError::NotConnected => SpotifyError::NotConnected,
+			librespot::core::session::SessionError::Packet(e) => SpotifyError::UnknownPacket(e),
 		}
 	}
 }
@@ -111,9 +111,9 @@ impl From<tokio::task::JoinError> for SpotifyError {
 	}
 }
 
-impl From<aspotify::Error> for SpotifyError {
-	fn from(e: aspotify::Error) -> Self {
-		Self::ASpotify(e.to_string())
+impl From<rspotify::ClientError> for SpotifyError {
+	fn from(e: rspotify::ClientError) -> Self {
+		Self::RSpotify(e.to_string())
 	}
 }
 

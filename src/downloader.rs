@@ -1,7 +1,5 @@
-use aspotify::Tracks;
 use async_std::channel::{bounded, Receiver, Sender};
 use async_stream::try_stream;
-use chrono::NaiveDate;
 use futures::stream::FuturesUnordered;
 use futures::{pin_mut, select, FutureExt, Stream, StreamExt};
 use librespot::audio::{AudioDecrypt, AudioFile};
@@ -10,6 +8,8 @@ use librespot::core::session::Session;
 use librespot::core::spotify_id::SpotifyId;
 use librespot::metadata::{Metadata, Track};
 use librespot::protocol::metadata::audio_file::Format as FileFormat;
+use rspotify::clients::BaseClient;
+use rspotify::model::TrackId;
 use sanitize_filename::sanitize;
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
@@ -93,12 +93,12 @@ impl Downloader {
 				}
 			}
 			SpotifyItem::Album(a) => {
-				let tracks = self.spotify.full_album(&a.id).await?;
+				let tracks = self.spotify.full_album(&a.id.to_string()).await?;
 				let queue: Vec<Download> = tracks.into_iter().map(|t| t.into()).collect();
 				self.add_to_queue_multiple(queue).await;
 			}
 			SpotifyItem::Playlist(p) => {
-				let tracks = self.spotify.full_playlist(&p.id).await?;
+				let tracks = self.spotify.full_playlist(&p.id.to_string()).await?;
 				let queue: Vec<Download> = tracks
 					.into_iter()
 					.filter(|t| !t.is_local)
@@ -107,7 +107,7 @@ impl Downloader {
 				self.add_to_queue_multiple(queue).await;
 			}
 			SpotifyItem::Artist(a) => {
-				let tracks = self.spotify.full_artist(&a.id).await?;
+				let tracks = self.spotify.full_artist(&a.id.to_string()).await?;
 				let queue: Vec<Download> = tracks.into_iter().map(|t| t.into()).collect();
 				self.add_to_queue_multiple(queue).await;
 			}
@@ -286,17 +286,15 @@ impl DownloaderInternal {
 		let track = self
 			.spotify
 			.spotify
-			.tracks()
-			.get_track(&job.track_id, None)
-			.await?
-			.data;
+			.track(TrackId::from_id(&job.track_id).unwrap(), None)
+			.await
+			.unwrap();
 		let album = self
 			.spotify
 			.spotify
-			.albums()
-			.get_album(&track.album.id.ok_or(SpotifyError::Unavailable)?, None)
-			.await?
-			.data;
+			.album(track.album.id.ok_or(SpotifyError::Unavailable)?, None)
+			.await
+			.unwrap();
 
 		let tags: Vec<(&str, String)> = vec![
 			("%title%", sanitize(&track.name)),
@@ -414,7 +412,7 @@ impl DownloaderInternal {
 			(Field::TrackNumber, vec![track.track_number.to_string()]),
 			(Field::DiscNumber, vec![track.disc_number.to_string()]),
 			(Field::Genre, album.genres.clone()),
-			(Field::Label, vec![album.label.to_string()]),
+			(Field::Label, vec![album.label.unwrap()]),
 		];
 		let date = album.release_date;
 		// Write tags
@@ -460,7 +458,7 @@ impl DownloaderInternal {
 		track_id: String,
 		format: AudioFormat,
 		tags: Vec<(Field, Vec<String>)>,
-		date: NaiveDate,
+		date: String,
 		cover: Option<(String, Vec<u8>)>,
 		config: DownloaderConfig,
 	) -> Result<(), SpotifyError> {
@@ -486,23 +484,22 @@ impl DownloaderInternal {
 		Ok(())
 	}
 
-    
-    async fn find_alternative(session: &Session, track: Track) -> Result<Track, SpotifyError> {
-        let librespot::metadata::track::Tracks(ids) = track.alternatives;
-        for id in ids {
-            let t = Track::get(session, &id).await?;
-            if !Self::track_has_alternatives(&t) {
-                return Ok(t);
-            }
-        }
+	async fn find_alternative(session: &Session, track: Track) -> Result<Track, SpotifyError> {
+		let librespot::metadata::track::Tracks(ids) = track.alternatives;
+		for id in ids {
+			let t = Track::get(session, &id).await?;
+			if !Self::track_has_alternatives(&t) {
+				return Ok(t);
+			}
+		}
 
-        Err(SpotifyError::Unavailable)
-    }
+		Err(SpotifyError::Unavailable)
+	}
 
-    fn track_has_alternatives(track: &Track) -> bool {
-        let librespot::metadata::track::Tracks(alts) = &track.alternatives;
-        !alts.is_empty()
-    }
+	fn track_has_alternatives(track: &Track) -> bool {
+		let librespot::metadata::track::Tracks(alts) = &track.alternatives;
+		!alts.is_empty()
+	}
 
 	/// Download track by id
 	async fn download_track(
@@ -517,11 +514,9 @@ impl DownloaderInternal {
 		let mut track = Track::get(session, &id).await?;
 
 		// Fallback if unavailable
-        if Self::track_has_alternatives(&track) {
-            track = Self::find_alternative(session, track).await?;
-        }
-        
-
+		if Self::track_has_alternatives(&track) {
+			track = Self::find_alternative(session, track).await?;
+		}
 
 		// if !track.available {
 		// 	track = DownloaderInternal::find_alternative(session, track).await?;
@@ -699,7 +694,7 @@ pub enum AudioFormat {
 	Aac,
 	Mp3,
 	Mp4,
-    Flac,
+	Flac,
 	Unknown,
 }
 
@@ -711,7 +706,7 @@ impl AudioFormat {
 			AudioFormat::Aac => "m4a",
 			AudioFormat::Mp3 => "mp3",
 			AudioFormat::Mp4 => "mp4",
-            AudioFormat::Flac => "flac",
+			AudioFormat::Flac => "flac",
 			AudioFormat::Unknown => "",
 		}
 		.to_string()
@@ -731,7 +726,7 @@ impl From<FileFormat> for AudioFormat {
 			FileFormat::MP3_160_ENC => Self::Mp3,
 			FileFormat::AAC_24 => Self::Aac,
 			FileFormat::AAC_48 => Self::Aac,
-            FileFormat::FLAC_FLAC => Self::Flac
+			FileFormat::FLAC_FLAC => Self::Flac,
 		}
 	}
 }
@@ -742,7 +737,7 @@ impl Quality {
 		match self {
 			Self::Q320 => vec![
 				FileFormat::OGG_VORBIS_320,
-				FileFormat::AAC_48,  // TODO
+				FileFormat::AAC_48, // TODO
 				FileFormat::MP3_320,
 			],
 			Self::Q256 => vec![FileFormat::MP3_256],
@@ -804,32 +799,32 @@ pub struct SearchResult {
 	pub title: String,
 }
 
-impl From<aspotify::Track> for SearchResult {
-	fn from(val: aspotify::Track) -> Self {
+impl From<rspotify::model::FullTrack> for SearchResult {
+	fn from(val: rspotify::model::FullTrack) -> Self {
 		SearchResult {
-			track_id: val.id.unwrap(),
+			track_id: val.id.unwrap().to_string(),
 			author: val.artists[0].name.to_owned(),
 			title: val.name,
 		}
 	}
 }
 
-impl From<aspotify::Track> for Download {
-	fn from(val: aspotify::Track) -> Self {
+impl From<rspotify::model::FullTrack> for Download {
+	fn from(val: rspotify::model::FullTrack) -> Self {
 		Download {
 			id: 0,
-			track_id: val.id.unwrap(),
+			track_id: val.id.unwrap().to_string(),
 			title: val.name,
 			state: DownloadState::None,
 		}
 	}
 }
 
-impl From<aspotify::TrackSimplified> for Download {
-	fn from(val: aspotify::TrackSimplified) -> Self {
+impl From<rspotify::model::SimplifiedTrack> for Download {
+	fn from(val: rspotify::model::SimplifiedTrack) -> Self {
 		Download {
 			id: 0,
-			track_id: val.id.unwrap(),
+			track_id: val.id.unwrap().to_string(),
 			title: val.name,
 			state: DownloadState::None,
 		}

@@ -1,5 +1,3 @@
-use chrono::NaiveDate;
-
 use std::path::Path;
 
 use crate::downloader::AudioFormat;
@@ -40,7 +38,7 @@ pub trait Tag {
 	fn set_separator(&mut self, separator: &str);
 	fn set_raw(&mut self, tag: &str, value: Vec<String>);
 	fn set_field(&mut self, field: Field, value: Vec<String>);
-	fn set_release_date(&mut self, date: NaiveDate);
+	fn set_release_date(&mut self, date: String);
 	fn add_cover(&mut self, mime: &str, data: Vec<u8>);
 	/// Adds the file identifier of the track
 	fn add_unique_file_identifier(&mut self, track_id: &str);

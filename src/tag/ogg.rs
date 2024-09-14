@@ -1,6 +1,5 @@
 use base64::engine::general_purpose;
 use base64::Engine;
-use chrono::{Datelike, NaiveDate};
 use oggvorbismeta::{read_comment_header, replace_comment_header, CommentHeader, VorbisComments};
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -84,11 +83,8 @@ impl super::Tag for OggTag {
 		Ok(())
 	}
 
-	fn set_release_date(&mut self, date: NaiveDate) {
-		self.tag.add_tag_single(
-			"DATE",
-			&format!("{}-{:02}-{:02}", date.year(), date.month(), date.day()),
-		)
+	fn set_release_date(&mut self, date: String) {
+		self.tag.add_tag_single("DATE", &date)
 	}
 
 	fn add_unique_file_identifier(&mut self, track_id: &str) {

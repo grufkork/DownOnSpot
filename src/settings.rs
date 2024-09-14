@@ -1,6 +1,6 @@
 use crate::downloader::DownloaderConfig;
 use crate::error::SpotifyError;
-use aspotify::CountryCode;
+use rspotify::model::Country;
 use serde::{Deserialize, Serialize};
 
 use tokio::{
@@ -23,7 +23,7 @@ pub struct Settings {
 	pub client_secret: String,
 	pub refresh_ui_seconds: u64,
 	pub downloader: DownloaderConfig,
-	pub market_country_code: Option<CountryCode>,
+	pub market_country_code: Option<Country>,
 }
 
 // On UNIX systems (eg. Linux, *BSD, even macOS), follow the
