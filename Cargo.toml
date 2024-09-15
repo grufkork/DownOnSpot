@@ -29,8 +29,8 @@ futures = "0"
 reqwest = "0"
 colored = "2"
 lame = "0"
-aspotify = "0"
-librespot = { git = "https://github.com/librespot-org/librespot", rev = "f647331" }
+rspotify = "0"
+librespot = { git = "https://github.com/IcyColdified/librespot" }
 async-std = { version = "1", features = ["attributes", "tokio1"] }
 serde_json = "1"
 async-stream = "0"
