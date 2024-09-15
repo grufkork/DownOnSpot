@@ -140,20 +140,18 @@ impl Spotify {
 
     /// Get all tracks from playlist
     pub async fn full_playlist(&self, id: PlaylistId<'_>) -> Result<Vec<FullTrack>, SpotifyError> {
-        Ok(self
-            .spotify
-            .playlist(id, None, self.market)
-            .await
-            .unwrap()
-            .tracks
-            .items
-            .into_iter()
-            .filter_map(|item| item.track)
-            .flat_map(|p_item| match p_item {
-                PlayableItem::Track(track) => Some(track),
-                _ => None,
-            })
-            .collect::<Vec<FullTrack>>())
+        let mut tracks: Vec<FullTrack> = Vec::new();
+        let stream = self.spotify.playlist_items(id, None, self.market);
+
+        pin_mut!(stream);
+        while let Some(item) = stream.try_next().await.unwrap() {
+            match item.track.unwrap() {
+                PlayableItem::Track(t) => tracks.push(t),
+                _ => continue,
+            }
+        }
+
+        Ok(tracks)
     }
 
     /// Get all tracks from album
