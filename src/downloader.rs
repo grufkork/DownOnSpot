@@ -93,12 +93,12 @@ impl Downloader {
                 }
             }
             SpotifyItem::Album(a) => {
-                let tracks = self.spotify.full_album(a.id.id()).await?;
+                let tracks = self.spotify.full_album(a.id).await?;
                 let queue: Vec<Download> = tracks.into_iter().map(|t| t.into()).collect();
                 self.add_to_queue_multiple(queue).await;
             }
             SpotifyItem::Playlist(p) => {
-                let tracks = self.spotify.full_playlist(p.id.id()).await?;
+                let tracks = self.spotify.full_playlist(p.id).await?;
                 let queue: Vec<Download> = tracks
                     .into_iter()
                     .filter(|t| !t.is_local)
@@ -107,7 +107,7 @@ impl Downloader {
                 self.add_to_queue_multiple(queue).await;
             }
             SpotifyItem::Artist(a) => {
-                let tracks = self.spotify.full_artist(a.id.id()).await?;
+                let tracks = self.spotify.full_artist(a.id).await?;
                 let queue: Vec<Download> = tracks.into_iter().map(|t| t.into()).collect();
                 self.add_to_queue_multiple(queue).await;
             }

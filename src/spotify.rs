@@ -139,10 +139,10 @@ impl Spotify {
     }
 
     /// Get all tracks from playlist
-    pub async fn full_playlist(&self, id: &str) -> Result<Vec<FullTrack>, SpotifyError> {
+    pub async fn full_playlist(&self, id: PlaylistId<'_>) -> Result<Vec<FullTrack>, SpotifyError> {
         Ok(self
             .spotify
-            .playlist(PlaylistId::from_id(id).unwrap(), None, self.market)
+            .playlist(id, None, self.market)
             .await
             .unwrap()
             .tracks
@@ -157,12 +157,9 @@ impl Spotify {
     }
 
     /// Get all tracks from album
-    pub async fn full_album(&self, id: &str) -> Result<Vec<SimplifiedTrack>, SpotifyError> {
+    pub async fn full_album(&self, id: AlbumId<'_>) -> Result<Vec<SimplifiedTrack>, SpotifyError> {
         let mut tracks: Vec<SimplifiedTrack> = Vec::new();
-        println!("{}", id);
-        let stream = self
-            .spotify
-            .album_track(AlbumId::from_id(id).unwrap(), self.market);
+        let stream = self.spotify.album_track(id, self.market);
 
         pin_mut!(stream);
         while let Some(item) = stream.try_next().await.unwrap() {
@@ -173,12 +170,13 @@ impl Spotify {
     }
 
     /// Get all tracks from artist
-    pub async fn full_artist(&self, id: &str) -> Result<Vec<SimplifiedTrack>, SpotifyError> {
+    pub async fn full_artist(
+        &self,
+        id: ArtistId<'_>,
+    ) -> Result<Vec<SimplifiedTrack>, SpotifyError> {
         let mut albums: Vec<SimplifiedAlbum> = Vec::new();
         let mut tracks: Vec<SimplifiedTrack> = Vec::new();
-        let stream = self
-            .spotify
-            .artist_albums(ArtistId::from_id(id).unwrap(), None, self.market);
+        let stream = self.spotify.artist_albums(id, None, self.market);
 
         pin_mut!(stream);
         while let Some(item) = stream.try_next().await.unwrap() {
@@ -186,12 +184,7 @@ impl Spotify {
         }
 
         for album in albums {
-            tracks.append(
-                &mut self
-                    .full_album(&album.id.unwrap().to_string())
-                    .await
-                    .unwrap(),
-            )
+            tracks.append(&mut self.full_album(album.id.unwrap()).await.unwrap())
         }
 
         Ok(tracks)
