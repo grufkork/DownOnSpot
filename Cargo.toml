@@ -31,7 +31,6 @@ colored = "2"
 lame = "0"
 aspotify = "0"
 librespot = { git = "https://github.com/librespot-org/librespot" , rev = "5440c4d" }
-async-std = { version = "1", features = ["attributes", "tokio1"] }
 serde_json = "1"
 async-stream = "0"
 oggvorbismeta = "0"

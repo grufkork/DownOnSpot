@@ -10,7 +10,6 @@ mod spotify;
 mod tag;
 
 use arg::Args;
-use async_std::task;
 use colored::Colorize;
 use downloader::{DownloadState, Downloader};
 use error::SpotifyError;
@@ -302,7 +301,7 @@ async fn start() {
 					break 'outer;
 				}
 
-				task::sleep(refresh).await
+				tokio::time::sleep(refresh).await
 			}
 
 			println!(

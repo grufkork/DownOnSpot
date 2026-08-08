@@ -2,7 +2,6 @@ use crate::converter::AudioConverter;
 use crate::error::SpotifyError;
 use crate::spotify::{Spotify, SpotifyItem};
 use crate::tag::{Field, TagWrap};
-use async_std::channel::{Receiver, Sender, bounded};
 use async_stream::try_stream;
 use chrono::NaiveDate;
 use futures::stream::FuturesUnordered;
@@ -22,11 +21,13 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
+use tokio::sync::Mutex;
+use tokio::sync::mpsc::{Receiver, Sender, channel};
 
 /// Wrapper for use with UI
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Downloader {
-	rx: Receiver<Response>,
+	rx: Mutex<Receiver<Response>>,
 	tx: Sender<Message>,
 
 	spotify: Spotify,
@@ -34,8 +35,8 @@ pub struct Downloader {
 impl Downloader {
 	/// Create new instance
 	pub fn new(config: DownloaderConfig, spotify: Spotify) -> Downloader {
-		let (tx_0, rx_0) = bounded(1);
-		let (tx_1, rx_1) = bounded(1);
+		let (tx_0, rx_0) = channel(100);
+		let (tx_1, rx_1) = channel(100);
 
 		let tx_clone = tx_1.clone();
 		let spotify_clone = spotify.clone();
@@ -43,7 +44,7 @@ impl Downloader {
 			communication_thread(config, spotify_clone, rx_1, tx_0, tx_clone).await
 		});
 		Downloader {
-			rx: rx_0,
+			rx: Mutex::new(rx_0),
 			tx: tx_1,
 			spotify,
 		}
@@ -128,7 +129,7 @@ impl Downloader {
 	/// Get all downloads
 	pub async fn get_downloads(&self) -> Vec<Download> {
 		self.tx.send(Message::GetDownloads).await.unwrap();
-		let Response::Downloads(d) = self.rx.recv().await.unwrap();
+		let Response::Downloads(d) = self.rx.lock().await.recv().await.unwrap();
 		d
 	}
 }
@@ -136,7 +137,7 @@ impl Downloader {
 async fn communication_thread(
 	config: DownloaderConfig,
 	spotify: Spotify,
-	rx: Receiver<Message>,
+	mut rx: Receiver<Message>,
 	tx: Sender<Response>,
 	self_tx: Sender<Message>,
 ) {
@@ -150,7 +151,7 @@ async fn communication_thread(
 	let mut queue: Vec<Download> = vec![];
 
 	// Receive messages
-	while let Ok(msg) = rx.recv().await {
+	while let Some(msg) = rx.recv().await {
 		match msg {
 			// Send job to worker thread
 			Message::GetJob => {
@@ -169,6 +170,10 @@ async fn communication_thread(
 			Message::UpdateState(id, state) => {
 				let i = queue.iter().position(|i| i.id == id).unwrap();
 				queue[i].state = state.clone();
+
+				if !matches!(state, DownloadState::Done(_) | DownloadState::Error(_)) {
+					continue;
+				}
 
 				let playlist_name = match &queue[i].playlist_name {
 					Some(name) => name,
@@ -266,7 +271,7 @@ async fn communication_thread(
 pub struct DownloaderInternal {
 	spotify: Spotify,
 	pub tx: Sender<DownloaderMessage>,
-	rx: Receiver<DownloaderMessage>,
+	rx: Mutex<Receiver<DownloaderMessage>>,
 	event_tx: Sender<Message>,
 }
 
@@ -277,11 +282,11 @@ pub enum DownloaderMessage {
 impl DownloaderInternal {
 	/// Create new instance
 	pub fn new(spotify: Spotify, event_tx: Sender<Message>) -> DownloaderInternal {
-		let (tx, rx) = bounded(1);
+		let (tx, rx) = channel(100);
 		DownloaderInternal {
 			spotify,
 			tx,
-			rx,
+			rx: Mutex::new(rx),
 			event_tx,
 		}
 	}
@@ -318,9 +323,12 @@ impl DownloaderInternal {
 	// Get job from parent
 	async fn get_job(&self) -> Option<(DownloadJob, DownloaderConfig)> {
 		self.event_tx.send(Message::GetJob).await.unwrap();
-		match self.rx.recv().await.ok()? {
-			DownloaderMessage::Job(job, config) => Some((job, config)),
-		}
+		self.rx
+			.lock()
+			.await
+			.recv()
+			.await
+			.map(|DownloaderMessage::Job(job, config)| (job, config))
 	}
 
 	/// Wrapper for download_job for error handling
