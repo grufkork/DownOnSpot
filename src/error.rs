@@ -21,7 +21,7 @@ pub enum SpotifyError {
 	InvalidFormat,
 	NotConnected,
 	UnknownPacket(u8),
-	AlreadyDownloaded,
+	AlreadyDownloaded(String),
 }
 
 impl std::error::Error for SpotifyError {}
@@ -47,7 +47,7 @@ impl fmt::Display for SpotifyError {
 			SpotifyError::InvalidFormat => write!(f, "Invalid Format!"),
 			SpotifyError::NotConnected => write!(f, "Not Connected"),
 			SpotifyError::UnknownPacket(e) => write!(f, "Unknown Packet: {e}"),
-			SpotifyError::AlreadyDownloaded => write!(f, "Already Downloaded"),
+			SpotifyError::AlreadyDownloaded(_) => write!(f, "Already Downloaded"),
 		}
 	}
 }

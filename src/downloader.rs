@@ -188,7 +188,7 @@ async fn communication_thread(
 					matches!(
 						d.state,
 						DownloadState::Done(_)
-							| DownloadState::Error(SpotifyError::AlreadyDownloaded)
+							| DownloadState::Error(SpotifyError::AlreadyDownloaded(_))
 							| DownloadState::Error(SpotifyError::Unavailable)
 					)
 				}) {
@@ -198,6 +198,9 @@ async fn communication_thread(
 				let paths: Vec<_> = playlist_tracks
 					.filter_map(|d| match &d.state {
 						DownloadState::Done(p) => Some((d.title.clone(), p.clone())),
+						DownloadState::Error(SpotifyError::AlreadyDownloaded(p_str)) => {
+							Some((d.title.clone(), std::path::PathBuf::from(p_str)))
+						}
 						_ => None,
 					})
 					.collect();
@@ -216,12 +219,11 @@ async fn communication_thread(
 				};
 
 				for (title, p) in paths {
-					let p_str = p
-						.file_name()
-						.unwrap_or_default()
+					let relative_path = p.strip_prefix(&config.path).unwrap_or(&p);
+					let p_str = relative_path
 						.to_str()
 						.unwrap_or_default()
-						.to_string();
+						.replace('\\', "/");
 					playlist.segments.push(m3u8_rs::MediaSegment {
 						uri: p_str,
 						title: Some(title),
@@ -336,11 +338,11 @@ impl DownloaderInternal {
 		let id = job.id;
 		match self.download_job(job, config).await {
 			Ok(_) => tokio::time::sleep(Duration::from_secs(1)).await,
-			Err(SpotifyError::AlreadyDownloaded) => {
+			Err(SpotifyError::AlreadyDownloaded(path)) => {
 				self.event_tx
 					.send(Message::UpdateState(
 						id,
-						DownloadState::Error(SpotifyError::AlreadyDownloaded),
+						DownloadState::Error(SpotifyError::AlreadyDownloaded(path)),
 					))
 					.await
 					.unwrap();
@@ -642,7 +644,9 @@ impl DownloaderInternal {
 
 		// Don't download if we are skipping and the path exists.
 		if config.skip_existing && path.is_file() {
-			return Err(SpotifyError::AlreadyDownloaded);
+			return Err(SpotifyError::AlreadyDownloaded(
+				path.to_str().unwrap().to_string(),
+			));
 		}
 
 		let path_clone = path.clone();

@@ -182,14 +182,14 @@ async fn start() {
 								let msg = format!(
 									" {} | {}: {}",
 									secs_to_hrs_min_sec(time_elapsed as i32),
-									if e == &SpotifyError::AlreadyDownloaded {
+									if matches!(e, SpotifyError::AlreadyDownloaded(_)) {
 										e.to_string().yellow()
 									} else {
 										e.to_string().red()
 									},
 									download.title
 								);
-								if e == &SpotifyError::AlreadyDownloaded {
+								if matches!(e, SpotifyError::AlreadyDownloaded(_)) {
 									messages.push(msg);
 								} else {
 									errors.push(msg);
@@ -220,7 +220,7 @@ async fn start() {
 							None
 						}
 						DownloadState::Error(e) => {
-							if e == &SpotifyError::AlreadyDownloaded {
+							if matches!(e, SpotifyError::AlreadyDownloaded(_)) {
 								num_skipped += 1;
 							} else {
 								num_err += 1;
