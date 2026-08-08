@@ -39,6 +39,7 @@ sanitize-filename = "0"
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["fs"] }
 env_logger = "0"
+m3u8-rs = "6.0.1"
 
 [package.metadata.winres]
 OriginalFilename = "DownOnSpot.exe"

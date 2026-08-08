@@ -173,7 +173,7 @@ async fn start() {
 							DownloadState::Lock => (),
 							DownloadState::Downloading(_, _) => (),
 							DownloadState::Post => (),
-							DownloadState::Done => messages.push(format!(
+							DownloadState::Done(_) => messages.push(format!(
 								" {} | {}: {}",
 								secs_to_hrs_min_sec(time_elapsed as i32),
 								"Downloaded".green(),
@@ -229,7 +229,7 @@ async fn start() {
 
 							None
 						}
-						DownloadState::Done => {
+						DownloadState::Done(_) => {
 							num_completed += 1;
 							None
 						}

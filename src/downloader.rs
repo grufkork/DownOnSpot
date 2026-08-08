@@ -102,7 +102,11 @@ impl Downloader {
 				let queue: Vec<Download> = tracks
 					.into_iter()
 					.filter(|t| !t.is_local)
-					.map(|t| t.into())
+					.map(|t| {
+						let mut d: Download = t.into();
+						d.playlist_name = Some(p.name.clone());
+						d
+					})
 					.collect();
 				self.add_to_queue_multiple(queue).await;
 			}
@@ -165,6 +169,64 @@ async fn communication_thread(
 			Message::UpdateState(id, state) => {
 				let i = queue.iter().position(|i| i.id == id).unwrap();
 				queue[i].state = state.clone();
+
+				let playlist_name = match &queue[i].playlist_name {
+					Some(name) => name,
+					None => continue,
+				};
+
+				let playlist_tracks = queue
+					.iter()
+					.filter(|d| d.playlist_name.as_ref() == Some(playlist_name));
+
+				if !playlist_tracks.clone().all(|d| {
+					matches!(
+						d.state,
+						DownloadState::Done(_)
+							| DownloadState::Error(SpotifyError::AlreadyDownloaded)
+							| DownloadState::Error(SpotifyError::Unavailable)
+					)
+				}) {
+					continue;
+				}
+
+				let paths: Vec<_> = playlist_tracks
+					.filter_map(|d| match &d.state {
+						DownloadState::Done(p) => Some((d.title.clone(), p.clone())),
+						_ => None,
+					})
+					.collect();
+
+				if paths.is_empty() {
+					continue;
+				}
+
+				let safe_name = sanitize_filename::sanitize(playlist_name);
+				let m3u_path = Path::new(&config.path).join(format!("{}.m3u8", safe_name));
+
+				let mut playlist = m3u8_rs::MediaPlaylist {
+					version: Some(3),
+					target_duration: 0,
+					..Default::default()
+				};
+
+				for (title, p) in paths {
+					let p_str = p
+						.file_name()
+						.unwrap_or_default()
+						.to_str()
+						.unwrap_or_default()
+						.to_string();
+					playlist.segments.push(m3u8_rs::MediaSegment {
+						uri: p_str,
+						title: Some(title),
+						..Default::default()
+					});
+				}
+
+				if let Ok(mut file) = std::fs::File::create(m3u_path) {
+					let _ = playlist.write_to(&mut file);
+				}
 			}
 			Message::AddToQueue(download) => {
 				// Assign new IDs and reset state
@@ -429,9 +491,10 @@ impl DownloaderInternal {
 		let date = album.release_date;
 		// Write tags
 		let config = config.clone();
+		let path_for_tags = path.clone();
 		tokio::task::spawn_blocking(move || {
 			DownloaderInternal::write_tags(
-				path,
+				path_for_tags,
 				job.track_id.to_string(),
 				format,
 				tags,
@@ -444,7 +507,7 @@ impl DownloaderInternal {
 
 		// Done
 		self.event_tx
-			.send(Message::UpdateState(job.id, DownloadState::Done))
+			.send(Message::UpdateState(job.id, DownloadState::Done(path)))
 			.await
 			.ok();
 		Ok(())
@@ -816,6 +879,7 @@ pub struct Download {
 	pub track_id: String,
 	pub title: String,
 	pub state: DownloadState,
+	pub playlist_name: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -842,6 +906,7 @@ impl From<aspotify::Track> for Download {
 			track_id: val.id.unwrap(),
 			title: val.name,
 			state: DownloadState::None,
+			playlist_name: None,
 		}
 	}
 }
@@ -853,6 +918,7 @@ impl From<aspotify::TrackSimplified> for Download {
 			track_id: val.id.unwrap(),
 			title: val.name,
 			state: DownloadState::None,
+			playlist_name: None,
 		}
 	}
 }
@@ -872,7 +938,7 @@ pub enum DownloadState {
 	Lock,
 	Downloading(usize, usize),
 	Post,
-	Done,
+	Done(PathBuf),
 	Error(SpotifyError),
 }
 
