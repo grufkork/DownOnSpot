@@ -1,7 +1,7 @@
-use base64::engine::general_purpose;
 use base64::Engine;
+use base64::engine::general_purpose;
 use chrono::{Datelike, NaiveDate};
-use oggvorbismeta::{read_comment_header, replace_comment_header, CommentHeader, VorbisComments};
+use oggvorbismeta::{CommentHeader, VorbisComments, read_comment_header, replace_comment_header};
 use std::fs::File;
 use std::path::{Path, PathBuf};
 
@@ -17,7 +17,7 @@ impl OggTag {
 	/// Load tag from file
 	pub fn open(path: impl AsRef<Path>) -> Result<OggTag, SpotifyError> {
 		let mut file = File::open(&path)?;
-		let tag = read_comment_header(&mut file);
+		let tag = read_comment_header(&mut file).map_err(|e| SpotifyError::Error(e.to_string()))?;
 		Ok(OggTag {
 			path: path.as_ref().to_owned(),
 			tag,
@@ -47,7 +47,7 @@ impl super::Tag for OggTag {
 
 		// MIME type
 		picture.extend(3u32.to_be_bytes().iter());
-		picture.extend((mime.as_bytes().len() as u32).to_be_bytes().iter());
+		picture.extend((mime.len() as u32).to_be_bytes().iter());
 		picture.extend(mime.as_bytes());
 
 		// Description
@@ -65,20 +65,21 @@ impl super::Tag for OggTag {
 
 		self.tag.add_tag_single(
 			"METADATA_BLOCK_PICTURE",
-			&general_purpose::STANDARD.encode(picture),
+			general_purpose::STANDARD.encode(picture),
 		);
 	}
 
 	fn set_raw(&mut self, tag: &str, value: Vec<String>) {
 		self.tag.add_tag_multi(
 			tag,
-			&value.iter().map(|v| v.as_str()).collect::<Vec<&str>>(),
+			&value.iter().map(|v| v.to_string()).collect::<Vec<String>>(),
 		);
 	}
 
 	fn save(&mut self) -> Result<(), SpotifyError> {
 		let file = File::open(&self.path)?;
-		let mut out = replace_comment_header(file, self.tag.clone());
+		let mut out = replace_comment_header(file, &self.tag.clone())
+			.map_err(|e| SpotifyError::Error(e.to_string()))?;
 		let mut file = File::create(&self.path)?;
 		std::io::copy(&mut out, &mut file)?;
 		Ok(())
@@ -87,7 +88,7 @@ impl super::Tag for OggTag {
 	fn set_release_date(&mut self, date: NaiveDate) {
 		self.tag.add_tag_single(
 			"DATE",
-			&format!("{}-{:02}-{:02}", date.year(), date.month(), date.day()),
+			format!("{}-{:02}-{:02}", date.year(), date.month(), date.day()),
 		)
 	}
 

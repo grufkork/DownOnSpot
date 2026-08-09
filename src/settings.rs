@@ -4,8 +4,8 @@ use aspotify::CountryCode;
 use serde::{Deserialize, Serialize};
 
 use tokio::{
-	fs::create_dir_all,
 	fs::File,
+	fs::create_dir_all,
 	io::{AsyncReadExt, AsyncWriteExt},
 };
 
@@ -17,8 +17,7 @@ use std::{
 // Structure for holding all the settings
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Settings {
-	pub username: String,
-	pub password: String,
+	pub access_token: String,
 	pub client_id: String,
 	pub client_secret: String,
 	pub refresh_ui_seconds: u64,
@@ -53,10 +52,9 @@ pub fn get_config_settings_path() -> PathBuf {
 
 impl Settings {
 	// Create new instance
-	pub fn new(username: &str, password: &str, client_id: &str, client_secret: &str) -> Settings {
+	pub fn new(access_token: &str, client_id: &str, client_secret: &str) -> Settings {
 		Settings {
-			username: username.to_string(),
-			password: password.to_string(),
+			access_token: access_token.to_string(),
 			client_id: client_id.to_string(),
 			client_secret: client_secret.to_string(),
 			refresh_ui_seconds: 1,

@@ -10,7 +10,6 @@ mod spotify;
 mod tag;
 
 use arg::Args;
-use async_std::task;
 use colored::Colorize;
 use downloader::{DownloadState, Downloader};
 use error::SpotifyError;
@@ -43,11 +42,7 @@ async fn start() {
 
 	let settings = match Settings::load().await {
 		Ok(settings) => {
-			println!(
-				"{} {}.",
-				"Settings successfully loaded.\nContinuing with spotify account:".green(),
-				settings.username
-			);
+			println!("{}.", "Settings successfully loaded.\nContinuing".green());
 			settings
 		}
 		Err(e) => {
@@ -56,7 +51,7 @@ async fn start() {
 				"Settings could not be loaded, because of the following error:".red(),
 				e
 			);
-			let default_settings = Settings::new("username", "password", "client_id", "secret");
+			let default_settings = Settings::new("access_token", "client_id", "secret");
 			match default_settings.save().await {
 				Ok(path) => {
 					println!(
@@ -78,8 +73,7 @@ async fn start() {
 	};
 
 	let spotify = match Spotify::new(
-		&settings.username,
-		&settings.password,
+		&settings.access_token,
 		&settings.client_id,
 		&settings.client_secret,
 		settings.market_country_code,
@@ -137,12 +131,9 @@ async fn start() {
 					.await
 				{
 					error!(
-						"{}",
-						format!(
-							"{}: {}",
-							"Track could not be added to download queue.".red(),
-							e
-						)
+						"{}: {}",
+						"Track could not be added to download queue.".red(),
+						e
 					);
 					return;
 				}
@@ -181,7 +172,7 @@ async fn start() {
 							DownloadState::Lock => (),
 							DownloadState::Downloading(_, _) => (),
 							DownloadState::Post => (),
-							DownloadState::Done => messages.push(format!(
+							DownloadState::Done(_) => messages.push(format!(
 								" {} | {}: {}",
 								secs_to_hrs_min_sec(time_elapsed as i32),
 								"Downloaded".green(),
@@ -191,14 +182,14 @@ async fn start() {
 								let msg = format!(
 									" {} | {}: {}",
 									secs_to_hrs_min_sec(time_elapsed as i32),
-									if e == &SpotifyError::AlreadyDownloaded {
+									if matches!(e, SpotifyError::AlreadyDownloaded(_)) {
 										e.to_string().yellow()
 									} else {
 										e.to_string().red()
 									},
 									download.title
 								);
-								if e == &SpotifyError::AlreadyDownloaded {
+								if matches!(e, SpotifyError::AlreadyDownloaded(_)) {
 									messages.push(msg);
 								} else {
 									errors.push(msg);
@@ -229,7 +220,7 @@ async fn start() {
 							None
 						}
 						DownloadState::Error(e) => {
-							if e == &SpotifyError::AlreadyDownloaded {
+							if matches!(e, SpotifyError::AlreadyDownloaded(_)) {
 								num_skipped += 1;
 							} else {
 								num_err += 1;
@@ -237,7 +228,7 @@ async fn start() {
 
 							None
 						}
-						DownloadState::Done => {
+						DownloadState::Done(_) => {
 							num_completed += 1;
 							None
 						}
@@ -273,7 +264,7 @@ async fn start() {
 					"Event".underline()
 				);
 				for message in messages.iter().rev() {
-					println!("{}", message);
+					println!("{message}");
 				}
 
 				if !errors.is_empty() {
@@ -283,16 +274,15 @@ async fn start() {
 						"Error".underline()
 					);
 					for error in errors.iter().rev().take(5) {
-						println!("{}", error);
+						println!("{error}");
 					}
 				}
 
 				println!("\n\n {}", "Current downloads:".underline().bold());
-				println!("{}", current_download_view);
+				println!("{current_download_view}");
 
 				println!(
-					"\n{bold}{}|{}|{}|{}| Total{bold_off}",
-					" Waiting ",
+					"\n{bold} Waiting |{}|{}|{}| Total{bold_off}",
 					" Failed  ".red(),
 					" Skipped ".yellow(),
 					" Done    ".green()
@@ -311,7 +301,7 @@ async fn start() {
 					break 'outer;
 				}
 
-				task::sleep(refresh).await
+				tokio::time::sleep(refresh).await
 			}
 
 			println!(
@@ -322,7 +312,7 @@ async fn start() {
 			if !errors.is_empty() {
 				println!("\n\n All Errors:");
 				for error in errors {
-					println!("{}", error);
+					println!("{error}");
 				}
 			}
 		}
@@ -333,7 +323,12 @@ async fn start() {
 }
 
 fn secs_to_hrs_min_sec(secs: i32) -> String {
-	format!("{:0>2}:{:0>2}:{:0>2}", secs / 360, secs / 60, secs % 60)
+	format!(
+		"{:0>2}:{:0>2}:{:0>2}",
+		secs / 3600,
+		(secs % 3600) / 60,
+		secs % 60
+	)
 }
 
 // !cargo b --release

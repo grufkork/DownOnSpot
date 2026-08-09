@@ -19,7 +19,7 @@ unsafe impl Send for AudioConverter {}
 impl AudioConverter {
 	/// Wrap reader
 	pub fn new(
-		read: Box<(dyn Read + Send + 'static)>,
+		read: Box<dyn Read + Send + 'static>,
 		format: AudioFormat,
 		quality: Quality,
 	) -> Result<AudioConverter, SpotifyError> {
@@ -101,7 +101,7 @@ impl Read for AudioConverter {
 								Err(e) => {
 									return Err(Error::new(
 										ErrorKind::InvalidData,
-										format!("Lame error: {:?}", e),
+										format!("Lame error: {e:?}"),
 									));
 								}
 							};
@@ -120,7 +120,7 @@ impl Read for AudioConverter {
 						if !*lame_end {
 							*lame_end = true;
 						}
-						warn!("Lawton error: {}, calling EOF", e);
+						warn!("Lawton error: {e}, calling EOF");
 						Ok(0)
 					}
 				}
@@ -130,11 +130,11 @@ impl Read for AudioConverter {
 }
 
 pub struct ReadWrap {
-	source: Box<(dyn Read + Send + 'static)>,
+	source: Box<dyn Read + Send + 'static>,
 }
 
 impl ReadWrap {
-	pub fn new(read: Box<(dyn Read + Send + 'static)>) -> ReadWrap {
+	pub fn new(read: Box<dyn Read + Send + 'static>) -> ReadWrap {
 		ReadWrap {
 			source: Box::new(read),
 		}

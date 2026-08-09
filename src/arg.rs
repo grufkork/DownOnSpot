@@ -1,5 +1,5 @@
 use crate::settings;
-use clap::{crate_authors, crate_version, Args as ClapArgs, Command, FromArgMatches, Parser};
+use clap::{Args as ClapArgs, Command, FromArgMatches, Parser, crate_authors, crate_version};
 
 #[derive(Parser, Debug)]
 pub struct Args {
@@ -24,6 +24,6 @@ fn get_command() -> Command {
 			"Settings file located at: {}",
 			settings::get_config_settings_path().to_string_lossy()
 		));
-	
+
 	Args::augment_args(cli)
 }
