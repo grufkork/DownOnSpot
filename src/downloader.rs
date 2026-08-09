@@ -1,9 +1,13 @@
-use async_std::channel::{bounded, Receiver, Sender};
+use crate::converter::AudioConverter;
+use crate::error::SpotifyError;
+use crate::spotify::{Spotify, SpotifyItem};
+use crate::tag::{Field, TagWrap};
 use async_stream::try_stream;
 use chrono::NaiveDate;
 use futures::stream::FuturesUnordered;
-use futures::{pin_mut, select, FutureExt, Stream, StreamExt};
+use futures::{FutureExt, Stream, StreamExt, pin_mut, select};
 use librespot::audio::{AudioDecrypt, AudioFile};
+use librespot::core::SpotifyUri;
 use librespot::core::audio_key::AudioKey;
 use librespot::core::session::Session;
 use librespot::core::spotify_id::SpotifyId;
@@ -14,18 +18,16 @@ use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
-
-use crate::converter::AudioConverter;
-use crate::error::SpotifyError;
-use crate::spotify::{Spotify, SpotifyItem};
-use crate::tag::{Field, TagWrap};
+use tokio::sync::Mutex;
+use tokio::sync::mpsc::{Receiver, Sender, channel};
 
 /// Wrapper for use with UI
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Downloader {
-	rx: Receiver<Response>,
+	rx: Mutex<Receiver<Response>>,
 	tx: Sender<Message>,
 
 	spotify: Spotify,
@@ -33,8 +35,8 @@ pub struct Downloader {
 impl Downloader {
 	/// Create new instance
 	pub fn new(config: DownloaderConfig, spotify: Spotify) -> Downloader {
-		let (tx_0, rx_0) = bounded(1);
-		let (tx_1, rx_1) = bounded(1);
+		let (tx_0, rx_0) = channel(100);
+		let (tx_1, rx_1) = channel(100);
 
 		let tx_clone = tx_1.clone();
 		let spotify_clone = spotify.clone();
@@ -42,7 +44,7 @@ impl Downloader {
 			communication_thread(config, spotify_clone, rx_1, tx_0, tx_clone).await
 		});
 		Downloader {
-			rx: rx_0,
+			rx: Mutex::new(rx_0),
 			tx: tx_1,
 			spotify,
 		}
@@ -101,7 +103,11 @@ impl Downloader {
 				let queue: Vec<Download> = tracks
 					.into_iter()
 					.filter(|t| !t.is_local)
-					.map(|t| t.into())
+					.map(|t| {
+						let mut d: Download = t.into();
+						d.playlist_name = Some(p.name.clone());
+						d
+					})
 					.collect();
 				self.add_to_queue_multiple(queue).await;
 			}
@@ -123,7 +129,7 @@ impl Downloader {
 	/// Get all downloads
 	pub async fn get_downloads(&self) -> Vec<Download> {
 		self.tx.send(Message::GetDownloads).await.unwrap();
-		let Response::Downloads(d) = self.rx.recv().await.unwrap();
+		let Response::Downloads(d) = self.rx.lock().await.recv().await.unwrap();
 		d
 	}
 }
@@ -131,7 +137,7 @@ impl Downloader {
 async fn communication_thread(
 	config: DownloaderConfig,
 	spotify: Spotify,
-	rx: Receiver<Message>,
+	mut rx: Receiver<Message>,
 	tx: Sender<Response>,
 	self_tx: Sender<Message>,
 ) {
@@ -145,7 +151,7 @@ async fn communication_thread(
 	let mut queue: Vec<Download> = vec![];
 
 	// Receive messages
-	while let Ok(msg) = rx.recv().await {
+	while let Some(msg) = rx.recv().await {
 		match msg {
 			// Send job to worker thread
 			Message::GetJob => {
@@ -164,6 +170,70 @@ async fn communication_thread(
 			Message::UpdateState(id, state) => {
 				let i = queue.iter().position(|i| i.id == id).unwrap();
 				queue[i].state = state.clone();
+
+				if !matches!(state, DownloadState::Done(_) | DownloadState::Error(_)) {
+					continue;
+				}
+
+				let playlist_name = match &queue[i].playlist_name {
+					Some(name) => name,
+					None => continue,
+				};
+
+				let playlist_tracks = queue
+					.iter()
+					.filter(|d| d.playlist_name.as_ref() == Some(playlist_name));
+
+				if !playlist_tracks.clone().all(|d| {
+					matches!(
+						d.state,
+						DownloadState::Done(_)
+							| DownloadState::Error(SpotifyError::AlreadyDownloaded(_))
+							| DownloadState::Error(SpotifyError::Unavailable)
+					)
+				}) {
+					continue;
+				}
+
+				let paths: Vec<_> = playlist_tracks
+					.filter_map(|d| match &d.state {
+						DownloadState::Done(p) => Some((d.title.clone(), p.clone())),
+						DownloadState::Error(SpotifyError::AlreadyDownloaded(p_str)) => {
+							Some((d.title.clone(), std::path::PathBuf::from(p_str)))
+						}
+						_ => None,
+					})
+					.collect();
+
+				if paths.is_empty() {
+					continue;
+				}
+
+				let safe_name = sanitize_filename::sanitize(playlist_name);
+				let m3u_path = Path::new(&config.path).join(format!("{}.m3u8", safe_name));
+
+				let mut playlist = m3u8_rs::MediaPlaylist {
+					version: Some(3),
+					target_duration: 0,
+					..Default::default()
+				};
+
+				for (title, p) in paths {
+					let relative_path = p.strip_prefix(&config.path).unwrap_or(&p);
+					let p_str = relative_path
+						.to_str()
+						.unwrap_or_default()
+						.replace('\\', "/");
+					playlist.segments.push(m3u8_rs::MediaSegment {
+						uri: p_str,
+						title: Some(title),
+						..Default::default()
+					});
+				}
+
+				if let Ok(mut file) = std::fs::File::create(m3u_path) {
+					let _ = playlist.write_to(&mut file);
+				}
 			}
 			Message::AddToQueue(download) => {
 				// Assign new IDs and reset state
@@ -203,7 +273,7 @@ async fn communication_thread(
 pub struct DownloaderInternal {
 	spotify: Spotify,
 	pub tx: Sender<DownloaderMessage>,
-	rx: Receiver<DownloaderMessage>,
+	rx: Mutex<Receiver<DownloaderMessage>>,
 	event_tx: Sender<Message>,
 }
 
@@ -214,11 +284,11 @@ pub enum DownloaderMessage {
 impl DownloaderInternal {
 	/// Create new instance
 	pub fn new(spotify: Spotify, event_tx: Sender<Message>) -> DownloaderInternal {
-		let (tx, rx) = bounded(1);
+		let (tx, rx) = channel(100);
 		DownloaderInternal {
 			spotify,
 			tx,
-			rx,
+			rx: Mutex::new(rx),
 			event_tx,
 		}
 	}
@@ -255,21 +325,35 @@ impl DownloaderInternal {
 	// Get job from parent
 	async fn get_job(&self) -> Option<(DownloadJob, DownloaderConfig)> {
 		self.event_tx.send(Message::GetJob).await.unwrap();
-		match self.rx.recv().await.ok()? {
-			DownloaderMessage::Job(job, config) => Some((job, config)),
-		}
+		self.rx
+			.lock()
+			.await
+			.recv()
+			.await
+			.map(|DownloaderMessage::Job(job, config)| (job, config))
 	}
 
 	/// Wrapper for download_job for error handling
 	async fn download_job_wrapper(&self, job: DownloadJob, config: DownloaderConfig) {
 		let id = job.id;
 		match self.download_job(job, config).await {
-			Ok(_) => {}
+			Ok(_) => tokio::time::sleep(Duration::from_secs(1)).await,
+			Err(SpotifyError::AlreadyDownloaded(path)) => {
+				self.event_tx
+					.send(Message::UpdateState(
+						id,
+						DownloadState::Error(SpotifyError::AlreadyDownloaded(path)),
+					))
+					.await
+					.unwrap();
+			}
 			Err(e) => {
 				self.event_tx
 					.send(Message::UpdateState(id, DownloadState::Error(e)))
 					.await
 					.unwrap();
+				// std::thread::sleep(Duration::new(5, 0));
+				tokio::time::sleep(Duration::from_secs(7)).await;
 			}
 		}
 	}
@@ -417,9 +501,10 @@ impl DownloaderInternal {
 		let date = album.release_date;
 		// Write tags
 		let config = config.clone();
+		let path_for_tags = path.clone();
 		tokio::task::spawn_blocking(move || {
 			DownloaderInternal::write_tags(
-				path,
+				path_for_tags,
 				job.track_id.to_string(),
 				format,
 				tags,
@@ -432,7 +517,7 @@ impl DownloaderInternal {
 
 		// Done
 		self.event_tx
-			.send(Message::UpdateState(job.id, DownloadState::Done))
+			.send(Message::UpdateState(job.id, DownloadState::Done(path)))
 			.await
 			.ok();
 		Ok(())
@@ -511,7 +596,7 @@ impl DownloaderInternal {
 		job_id: i64,
 	) -> Result<(PathBuf, AudioFormat), SpotifyError> {
 		let id = SpotifyId::from_base62(id)?;
-		let mut track = Track::get(session, &id).await?;
+		let mut track = Track::get(session, &SpotifyUri::Track { id }).await?;
 
 		// Fallback if unavailable
 		if Self::track_has_alternatives(&track) {
@@ -528,7 +613,7 @@ impl DownloaderInternal {
 		'outer: loop {
 			for format in quality.get_file_formats() {
 				if let Some(f) = track.files.get(&format) {
-					info!("{} Using {:?} format.", id.to_base62().unwrap(), format);
+					info!("{} Using {:?} format.", id, format);
 					file_id = Some(f);
 					file_format = Some(format);
 					break 'outer;
@@ -539,7 +624,7 @@ impl DownloaderInternal {
 				Some(q) => quality = q,
 				None => break,
 			}
-			warn!("{} Falling back to: {:?}", id.to_base62().unwrap(), quality);
+			warn!("{} Falling back to: {:?}", id, quality);
 		}
 
 		let file_id = file_id.ok_or(SpotifyError::Unavailable)?;
@@ -559,12 +644,17 @@ impl DownloaderInternal {
 
 		// Don't download if we are skipping and the path exists.
 		if config.skip_existing && path.is_file() {
-			return Err(SpotifyError::AlreadyDownloaded);
+			return Err(SpotifyError::AlreadyDownloaded(
+				path.to_str().unwrap().to_string(),
+			));
 		}
 
 		let path_clone = path.clone();
 
-		let key = session.audio_key().request(track.id, *file_id).await?;
+		let key = session
+			.audio_key()
+			.request(SpotifyId::try_from(&track.id)?, *file_id)
+			.await?;
 		let encrypted = AudioFile::open(session, *file_id, 1024 * 1024).await?;
 		let size = encrypted.get_stream_loader_controller()?.len();
 		// Download
@@ -604,7 +694,7 @@ impl DownloaderInternal {
 			}
 		}
 
-		info!("Done downloading: {}", track.id.to_base62().unwrap());
+		info!("Done downloading: {}", track.id);
 		Ok((path, audio_format))
 	}
 
@@ -801,6 +891,7 @@ pub struct Download {
 	pub track_id: String,
 	pub title: String,
 	pub state: DownloadState,
+	pub playlist_name: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -827,6 +918,7 @@ impl From<aspotify::Track> for Download {
 			track_id: val.id.unwrap(),
 			title: val.name,
 			state: DownloadState::None,
+			playlist_name: None,
 		}
 	}
 }
@@ -838,6 +930,7 @@ impl From<aspotify::TrackSimplified> for Download {
 			track_id: val.id.unwrap(),
 			title: val.name,
 			state: DownloadState::None,
+			playlist_name: None,
 		}
 	}
 }
@@ -857,7 +950,7 @@ pub enum DownloadState {
 	Lock,
 	Downloading(usize, usize),
 	Post,
-	Done,
+	Done(PathBuf),
 	Error(SpotifyError),
 }
 

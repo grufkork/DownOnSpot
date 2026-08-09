@@ -1,5 +1,5 @@
 use crate::settings;
-use clap::{crate_authors, crate_version, Args as ClapArgs, Command, FromArgMatches, Parser};
+use clap::{Args as ClapArgs, Command, FromArgMatches, Parser, crate_authors, crate_version};
 
 #[derive(Parser, Debug)]
 pub struct Args {

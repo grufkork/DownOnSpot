@@ -19,7 +19,7 @@ unsafe impl Send for AudioConverter {}
 impl AudioConverter {
 	/// Wrap reader
 	pub fn new(
-		read: Box<(dyn Read + Send + 'static)>,
+		read: Box<dyn Read + Send + 'static>,
 		format: AudioFormat,
 		quality: Quality,
 	) -> Result<AudioConverter, SpotifyError> {
@@ -130,11 +130,11 @@ impl Read for AudioConverter {
 }
 
 pub struct ReadWrap {
-	source: Box<(dyn Read + Send + 'static)>,
+	source: Box<dyn Read + Send + 'static>,
 }
 
 impl ReadWrap {
-	pub fn new(read: Box<(dyn Read + Send + 'static)>) -> ReadWrap {
+	pub fn new(read: Box<dyn Read + Send + 'static>) -> ReadWrap {
 		ReadWrap {
 			source: Box::new(read),
 		}

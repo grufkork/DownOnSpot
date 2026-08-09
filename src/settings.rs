@@ -4,8 +4,8 @@ use aspotify::CountryCode;
 use serde::{Deserialize, Serialize};
 
 use tokio::{
-	fs::create_dir_all,
 	fs::File,
+	fs::create_dir_all,
 	io::{AsyncReadExt, AsyncWriteExt},
 };
 
